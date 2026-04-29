@@ -21,52 +21,47 @@ class ChatInput(BaseModel):
     pesan: str
 
 # API KEY OpenRouter kamu
-OPENROUTER_API_KEY = "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"
-
+OPENROUTER_API_KEY = "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"
 @app.post("/chat/")
 def ngobrol_dengan_ai(input_user: ChatInput):
     global chat_history
     try:
-        # 1. Masukkan pesan kamu ke memori
         chat_history.append({"role": "user", "content": input_user.pesan})
         
-        # 2. Batasi memori: Cukup ingat 4 pesan terakhir agar tidak overload (Token Limit)
-        if len(chat_history) > 4:
-            chat_history = chat_history[-4:]
+        if len(chat_history) > 3:
+            chat_history = chat_history[-3:]
 
-        # 3. Request ke OpenRouter
         response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                 "Content-Type": "application/json",
+                "HTTP-Referer": "http://localhost:8000",
+                "X-Title": "Asisten Agung MSI",
             },
             data=json.dumps({
-                "model": "google/gemma-3-4b-it:free",
+                # Coba pakai model Qwen, ini biasanya paling jarang error buat gratisan
+                "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
                 "messages": [
-                    # Instruksi agar AI tetap ramah sebagai asisten Agung
-                    {"role": "user", "content": "Instruksi: Kamu asisten Agung PPLG. pemilik mu adalah agung. Jawab singkat, ramah, dan pakai Bahasa Indonesia."}
+                    {"role": "system", "content": "Kamu asisten Agung PPLG. Jawab singkat & Indonesia."}
                 ] + chat_history
             })
         )
         
         hasil = response.json()
 
-        # 4. Ambil jawaban (Logika Anti-Bengong)
+        # CEK DISINI: Kalau sukses
         if "choices" in hasil and len(hasil["choices"]) > 0:
             jawaban = hasil["choices"][0]["message"].get("content", "")
-            
-            if jawaban.strip():
-                chat_history.append({"role": "assistant", "content": jawaban})
-                return {"jawaban_ai": jawaban}
+            chat_history.append({"role": "assistant", "content": jawaban})
+            return {"jawaban_ai": jawaban}
         
-        # 5. Jika gagal dapat jawaban, tampilkan pesan error dari server
-        if chat_history: chat_history.pop() # Hapus chat terakhir yang gagal biar tidak macet
-        
-        error_info = hasil.get("error", {}).get("message", "Server OpenRouter sedang sibuk.")
-        return {"jawaban_ai": f"Duh Gung, ada masalah: {error_info}"}
+        # CEK DISINI: Kalau gagal, kita bongkar error-nya
+        else:
+            chat_history = [] # Reset biar gak nyangkut
+            error_msg = hasil.get("error", {}).get("message", "Gak tau kenapa, mungkin kuota habis.")
+            return {"jawaban_ai": f"Duh Gung, OpenRouter bilang: {error_msg}"}
 
     except Exception as e:
-        # Reset total jika ada error sistem
         chat_history = []
-        return {"error": f"Terjadi kesalahan teknis: {str(e)}"}
+        return {"jawaban_ai": f"Ada error teknis: {str(e)}"}
